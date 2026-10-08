@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: mart_business_metrics
+
+    columns:
+      - name: customer_id
+        data_tests:
+          - not_null
+
+      - name: product_id
+        data_tests:
+          - not_null
+
+      - name: gross_revenue
+        data_tests:
+          - not_null
+
+      - name: order_count
+        data_tests:
+          - not_null
