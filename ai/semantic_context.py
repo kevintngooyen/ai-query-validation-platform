@@ -40,11 +40,15 @@ BUSINESS_METRICS = {
     },
 
     "payment_rate": {
-        "definition": "Percentage of gross revenue that has been paid.",
-        "formula": "SUM(total_payments) / NULLIF(SUM(gross_revenue), 0)",
+        "definition": "Total payments divided by gross revenue.",
+        "formula": (
+            "SUM(total_payments) / "
+            "NULLIF(SUM(gross_revenue), 0)"
+        ),
         "rules": [
-            "Do not calculate overall payment rate using AVG(payment_rate)."
-        ]
+            "Never use AVG(payment_rate) for an overall rate.",
+            "Always calculate rates using aggregated totals."
+    ]
     },
 }
 

@@ -2,6 +2,7 @@ import os
 import sys
 from pathlib import Path
 
+from decimal import Decimal
 import pandas as pd
 import snowflake.connector
 from dotenv import load_dotenv
@@ -81,37 +82,42 @@ def run_query(conn, sql):
 # --------------------------------------------------
 
 def normalize_dataframe(df):
-
     df = df.copy()
 
-    # Standardize column names
+    # 1. Ignore differences in column names
     df.columns = [
-        str(column).lower()
-        for column in df.columns
+        f"column_{i}" for i in range(len(df.columns))
     ]
 
-    # Sort columns alphabetically
-    df = df.reindex(
-        sorted(df.columns),
-        axis=1
-    )
+    # 2. Normalize individual values
+    def normalize_value(value):
 
-    # Sort rows so ordering differences
-    # do not automatically cause failures
+        if pd.isna(value):
+            return None
+
+        # Convert numeric types to comparable values
+        if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
+            return round(float(value), 6)
+
+        # Remove extra spaces in text
+        if isinstance(value, str):
+            return value.strip()
+
+        return value
+
+    for col in df.columns:
+        df[col] = df[col].map(normalize_value)
+
+    # 3. Sort rows to ignore differences in row ordering
     if not df.empty and len(df.columns) > 0:
+        df = df.sort_values(
+            by=list(df.columns),
+            key=lambda col: col.astype(str),
+            kind="stable"
+        )
 
-        try:
-            df = (
-                df
-                .sort_values(
-                    by=list(df.columns)
-                )
-                .reset_index(drop=True)
-            )
-
-        except TypeError:
-            # Some mixed data types may not sort cleanly
-            df = df.reset_index(drop=True)
+    # 4. Reset row indexes
+    df = df.reset_index(drop=True)
 
     return df
 
