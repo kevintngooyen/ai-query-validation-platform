@@ -7,7 +7,7 @@ RESULTS_FILE = (
     PROJECT_ROOT
     / "evaluation"
     / "results"
-    / "baseline_50_results.csv"
+    / "improved_50_results.csv"
 )
 
 # Load results
