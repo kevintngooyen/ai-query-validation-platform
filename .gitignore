@@ -24,3 +24,7 @@ logs/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Local certification database
+evaluation/reviews/*.db
+evaluation/reviews/*.db-*

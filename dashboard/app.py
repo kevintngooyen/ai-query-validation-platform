@@ -3,6 +3,13 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from certification import (
+    init_db,
+    save_review,
+    get_review
+)
+
+from certification import sql_hash as sql_hash_for_form
 
 # ---------------------------
 # Dashboard Configuration
@@ -169,16 +176,22 @@ versions = ["Baseline"]
 if improved is not None:
     versions.append("Improved")
 
-selected_version = st.selectbox(
-    "Select evaluation version",
-    versions
-)
+# ---------------------------
+# Select Results for Review
+# ---------------------------
 
-results = (
-    baseline
-    if selected_version == "Baseline"
-    else improved
-)
+st.header("Evaluation Results")
+
+if improved is not None:
+    results = improved
+    selected_version = "Improved"
+    st.success("Using improved_50_results.csv")
+else:
+    results = baseline
+    selected_version = "Baseline"
+    st.warning(
+        "Improved results not found. Using baseline instead."
+    )
 
 failed = results[
     results["status"] == "FAIL"
@@ -287,3 +300,269 @@ if not filtered.empty and "question_id" in filtered.columns:
             str(row.get("generated_sql", "")),
             language="sql"
         )
+
+# ---------------------------
+# Business Question Certification
+# ---------------------------
+
+st.header("Business Question Certification")
+
+init_db()
+
+st.write(
+    "Review AI-generated SQL and approve or reject "
+    "queries based on business logic and correctness."
+)
+
+if results.empty:
+    st.info("No evaluation questions available.")
+
+else:
+    # Select question
+    question_ids = results["question_id"].tolist()
+
+    review_question_id = st.selectbox(
+        "Select a question to certify",
+        question_ids,
+        key="certification_question"
+    )
+
+    review_row = results[
+        results["question_id"] == review_question_id
+    ].iloc[0]
+
+    question = str(review_row["question"])
+
+    generated_sql = str(
+        review_row.get("generated_sql", "")
+    )
+
+    expected_sql = str(
+        review_row.get("expected_sql", "")
+    )
+
+    evaluation_status = str(
+        review_row["status"]
+    ).upper()
+
+    # Load existing review
+    existing_review = get_review(
+        selected_version,
+        review_question_id,
+        generated_sql
+    )
+
+    certification_status = (
+        existing_review["decision"]
+        if existing_review
+        else "PENDING"
+    )
+
+    # Display question
+    st.subheader("Business Question")
+    st.write(question)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.write("Automated Evaluation")
+        st.write(evaluation_status)
+
+    with col2:
+        st.write("Certification Status")
+        st.write(certification_status)
+
+    # SQL comparison
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Certified SQL")
+        st.code(expected_sql, language="sql")
+
+    with col2:
+        st.subheader("AI-Generated SQL")
+        st.code(generated_sql, language="sql")
+
+    # Existing reviewer information
+    if existing_review:
+        st.caption(
+            f"Previously reviewed by "
+            f"{existing_review['reviewer']} "
+            f"at {existing_review['reviewed_at']}"
+        )
+
+    # Unique form for each query and version
+    form_key = (
+        f"review_{selected_version}_"
+        f"{review_question_id}_"
+        f"{sql_hash_for_form(generated_sql)}"
+    )
+
+    with st.form(form_key):
+
+        reviewer = st.text_input(
+            "Reviewer Name",
+            value=(
+                existing_review["reviewer"]
+                if existing_review
+                else ""
+            )
+        )
+
+        decision = st.radio(
+            "Certification Decision",
+            ["APPROVED", "REJECTED"],
+            index=(
+                1 if existing_review
+                and existing_review["decision"] == "REJECTED"
+                else 0
+            ),
+            horizontal=True
+        )
+
+        comments = st.text_area(
+            "Reviewer Comments",
+            value=(
+                existing_review["comments"] or ""
+                if existing_review
+                else ""
+            ),
+            placeholder=(
+                "Explain why the generated SQL "
+                "is correct or incorrect."
+            )
+        )
+
+        submitted = st.form_submit_button(
+            "Save Certification",
+            type="primary"
+        )
+
+    if submitted:
+
+        if not reviewer.strip():
+            st.error("Enter a reviewer name.")
+
+        elif decision == "REJECTED" and not comments.strip():
+            st.error(
+                "Provide a reason for rejecting this query."
+            )
+
+        elif (
+            decision == "APPROVED"
+            and evaluation_status != "PASS"
+            and not comments.strip()
+        ):
+            st.error(
+                "Explain why you are overriding "
+                "a failed automated evaluation."
+            )
+
+        else:
+            save_review(
+                selected_version,
+                review_question_id,
+                generated_sql,
+                decision,
+                reviewer,
+                comments
+            )
+
+            st.success("Certification saved!")
+            st.rerun()
+
+# ---------------------------
+# Certification Summary
+# ---------------------------
+
+st.header("Certification Summary")
+
+review_statuses = []
+
+for _, item in results.iterrows():
+    review = get_review(
+        selected_version,
+        item["question_id"],
+        str(item.get("generated_sql", ""))
+    )
+
+    status = review["decision"] if review else "PENDING"
+    review_statuses.append(status)
+
+approved_count = review_statuses.count("APPROVED")
+rejected_count = review_statuses.count("REJECTED")
+pending_count = review_statuses.count("PENDING")
+
+total_count = len(review_statuses)
+
+if total_count > 0:
+    approved_pct = approved_count / total_count * 100
+    rejected_pct = rejected_count / total_count * 100
+    pending_pct = pending_count / total_count * 100
+else:
+    approved_pct = rejected_pct = pending_pct = 0
+
+
+# Summary metric cards
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric(
+        label="Approved",
+        value=approved_count
+    )
+
+with col2:
+    st.metric(
+        label="Rejected",
+        value=rejected_count
+    )
+
+with col3:
+    st.metric(
+        label="Pending Review",
+        value=pending_count
+    )
+
+
+# Horizontal stacked status bar
+st.markdown("### Certification Progress")
+
+if total_count > 0:
+    st.markdown(
+        f"""
+        <div style="
+            display: flex;
+            width: 100%;
+            height: 22px;
+            border-radius: 8px;
+            overflow: hidden;
+            background-color: #e5e7eb;
+        ">
+            <div style="
+                width: {approved_pct:.4f}%;
+                background-color: #16a34a;
+            "></div>
+
+            <div style="
+                width: {rejected_pct:.4f}%;
+                background-color: #dc2626;
+            "></div>
+
+            <div style="
+                width: {pending_pct:.4f}%;
+                background-color: #94a3b8;
+            "></div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.caption(
+        f"Approved: {approved_pct:.1f}%  |  "
+        f"Rejected: {rejected_pct:.1f}%  |  "
+        f"Pending: {pending_pct:.1f}%"
+    )
+
+else:
+    st.info("No questions available for certification.")
