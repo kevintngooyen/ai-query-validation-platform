@@ -21,7 +21,7 @@ The project focuses on:
 - Data modeling
 - Data quality
 - Semantic definitions
-- Natural-language-to-SQL generation
+- Natural language to SQL generation
 - Query validation
 - AI evaluation
 - Root-cause analysis
